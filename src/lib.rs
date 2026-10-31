@@ -1,6 +1,7 @@
 pub mod actions;
 pub mod click;
 pub mod code;
+pub use code::register_language;
 mod diff;
 #[cfg(feature = "bench-internals")]
 pub use diff::{bench_build_diff_rows, bench_build_diff_rows_fast};

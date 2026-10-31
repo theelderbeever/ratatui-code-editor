@@ -39,7 +39,7 @@ pub fn indent(lang: &str) -> String {
 pub fn comment(lang: &str) -> &'static str {
     match lang {
         "python" | "shell" => "#",
-        "lua" => "--",
+        "lua" | "sql" => "--",
         _ => "//",
     }
 }

@@ -7,6 +7,7 @@ use rust_embed::RustEmbed;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::{OnceLock, RwLock};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{InputEdit, Point, QueryCursor};
 use tree_sitter::{Language, Node, Parser, Query, Tree};
@@ -59,6 +60,41 @@ pub struct EditState {
 pub struct FoldRange {
     pub start_line: usize,
     pub end_line: usize,
+}
+
+/// A grammar and highlight query supplied by the embedding application.
+struct RegisteredLanguage {
+    language: Language,
+    highlights: String,
+}
+
+fn registry() -> &'static RwLock<HashMap<String, RegisteredLanguage>> {
+    static REGISTRY: OnceLock<RwLock<HashMap<String, RegisteredLanguage>>> = OnceLock::new();
+    REGISTRY.get_or_init(Default::default)
+}
+
+/// Make `name` usable as a language for every [`Code`] and editor created
+/// afterwards, taking precedence over a built-in language of the same name.
+///
+/// Lets applications use grammars this crate does not bundle, e.g. SQL:
+///
+/// ```ignore
+/// ratatui_code_editor::register_language(
+///     "sql",
+///     tree_sitter_sequel::LANGUAGE.into(),
+///     tree_sitter_sequel::HIGHLIGHTS_QUERY,
+/// );
+/// let editor = ratatui_code_editor::editor::Editor::new("sql", "SELECT 1", theme)?;
+/// ```
+pub fn register_language(name: &str, language: Language, highlights: &str) {
+    let entry = RegisteredLanguage {
+        language,
+        highlights: highlights.to_owned(),
+    };
+    registry()
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(name.to_owned(), entry);
 }
 
 pub struct Code {
@@ -125,6 +161,10 @@ impl Code {
     }
 
     fn get_language(lang: &str) -> Option<Language> {
+        let registered = registry().read().unwrap_or_else(|e| e.into_inner());
+        if let Some(entry) = registered.get(lang) {
+            return Some(entry.language.clone());
+        }
         match lang {
             "rust" => Some(tree_sitter_rust::LANGUAGE.into()),
             "javascript" => Some(tree_sitter_javascript::LANGUAGE.into()),
@@ -152,6 +192,10 @@ impl Code {
             if let Some(highlights) = highlights_map.get(lang) {
                 return Ok(highlights.clone());
             }
+        }
+        let registered = registry().read().unwrap_or_else(|e| e.into_inner());
+        if let Some(entry) = registered.get(lang) {
+            return Ok(entry.highlights.clone());
         }
         let p = format!("langs/{}/highlights.scm", lang);
         let highlights_bytes =
